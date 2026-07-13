@@ -11,9 +11,22 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+
+
+    // ->withMiddleware(function (Middleware $middleware): void {
+    //     $middleware->alias(['admin' => EnsureUserIsAdmin::class]);
+    // })
+
+    //compile VERCEL PUSH GIT HUB
+
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['admin' => EnsureUserIsAdmin::class]);
+        $middleware->trustProxies(at: '*');
+
+        $middleware->alias([
+            'admin' => EnsureUserIsAdmin::class,
+        ]);
     })
+
     ->withExceptions(function (Exceptions $exceptions): void {
         // Use Laravel's default exception handling.
     })->create();
