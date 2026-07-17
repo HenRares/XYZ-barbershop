@@ -43,4 +43,22 @@ class Booking extends Model
     {
         return $this->hasOne(BarberLog::class, 'booking_id', 'id');
     }
+
+
+    //tambahaannn
+    public function getCurrentWaitingMinutes(): int
+    {
+        if (!$this->estimated_service_time) {
+            return 0;
+        }
+
+        $serviceTime = $this->visit_date
+            ->copy()
+            ->setTimeFromTimeString($this->estimated_service_time);
+
+        return max(
+            0,
+            now()->diffInMinutes($serviceTime, false)
+        );
+    }
 }

@@ -115,11 +115,17 @@ class QueueTrackingController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | ESTIMASI
+        | ESTIMASI tambahann
         |--------------------------------------------------------------------------
         */
-        $estimate = $primary
-            ? [
+        $estimate = null;
+
+        if ($primary) {
+
+            $waitingMinutes = $primary->getCurrentWaitingMinutes();
+
+            $estimate = [
+
                 'currentServingNumber' => Booking::forDate(
                     $primary->visit_date->toDateString()
                 )
@@ -132,10 +138,12 @@ class QueueTrackingController extends Controller
                 ->where('status', Booking::STATUS_WAITING)
                 ->where('queue_number', '<', $primary->queue_number)
                 ->count(),
-                'waitingMinutes' => $primary->estimated_waiting_time,
+
+                'waitingMinutes' => $waitingMinutes,
+
                 'serviceTime' => $primary->estimated_service_time,
-            ]
-            : null;
+            ];
+        }
 
         return view(
             'booking.my-queue',
@@ -184,11 +192,12 @@ class QueueTrackingController extends Controller
                     )
                     ->count(),
 
-                'waitingText' =>
-                    app(\App\Services\QueueEstimator::class)
-                        ->formatWait(
-                            (int) $booking->estimated_waiting_time
-                        ),
+//tammbahann waiting text
+
+                'waitingText' => app(\App\Services\QueueEstimator::class)
+                ->formatWait(
+                    $booking->getCurrentWaitingMinutes()
+                ),
 
                 'serviceTime' =>
                     $booking->estimated_service_time,
