@@ -178,11 +178,15 @@ class BarberScheduler
             );
 
             /*
-            * Hapus hanya barber log untuk booking MENUNGGU
+            * Hapus hanya barber log untuk booking MENUNGGU dan CANCEL
             */
             BarberLog::whereHas('booking', function ($q) use ($date) {
                 $q->whereDate('visit_date', $date)
-                    ->where('status', Booking::STATUS_WAITING);
+                    // ->where('status', Booking::STATUS_WAITING);
+                    ->whereIn('status', [
+                        Booking::STATUS_WAITING,
+                        Booking::STATUS_CANCELLED,
+                    ]);
             })->delete();
 
             /*
@@ -204,8 +208,16 @@ class BarberScheduler
 
                 $lastLog = BarberLog::query()
                     ->where('barber_slot', $i)
+                    // ->whereHas('booking', function ($q) use ($date) {
+                    //     $q->whereDate('visit_date', $date);
+                    // })
+
                     ->whereHas('booking', function ($q) use ($date) {
-                        $q->whereDate('visit_date', $date);
+                        $q->whereDate('visit_date', $date)
+                        ->whereIn('status', [
+                            Booking::STATUS_SERVING,
+                            Booking::STATUS_DONE,
+                        ]);
                     })
                     ->orderByDesc('service_end_at')
                     ->first();
