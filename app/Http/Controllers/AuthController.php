@@ -9,40 +9,87 @@ use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
-    public function showLogin() { return view('auth.login'); }
-
-    public function login(Request $request)
-            {
-            $credentials = $request->validate(
-                [
-                    'email' => ['required', 'email'],
-                    'password' => ['required', 'string'],
-                ],
-                [
-                    'email.required' => 'Email wajib diisi.',
-                    'email.email' => 'Format email tidak valid.',
-                    'password.required' => 'Password wajib diisi.',
-                ]
-            );
-        if (! Auth::attempt(['email' => strtolower($credentials['email']), 'password' => $credentials['password']], $request->boolean('remember'))) {
-            return back()->withErrors(['email' => 'Email atau password salah'])->onlyInput('email');
-        }
-        $request->session()->regenerate();
-        $target = $request->user()->isAdmin() ? route('admin.dashboard') : route('queue.mine');
-        return redirect()->intended($target)->with('success', 'Selamat datang, '.$request->user()->name.'!');
+    /**
+     * Menampilkan halaman login.
+     */
+    public function showLogin()
+    {
+        return view('auth.login');
     }
 
-    public function showRegister() { return view('auth.register'); }
+    /**
+     * Memproses login pengguna.
+     */
+    public function login(Request $request)
+    {
+        $credentials = $request->validate(
+            [
+                'email' => ['required', 'email'],
+                'password' => ['required', 'string'],
+            ],
+            [
+                'email.required' => 'Email wajib diisi.',
+                'email.email' => 'Format email tidak valid.',
+                'password.required' => 'Password wajib diisi.',
+            ]
+        );
 
+        $loginData = [
+            'email' => strtolower(trim($credentials['email'])),
+            'password' => $credentials['password'],
+        ];
+
+        if (!Auth::attempt($loginData, $request->boolean('remember'))) {
+            return back()
+                ->withErrors([
+                    'email' => 'Email atau password salah.',
+                ])
+                ->onlyInput('email');
+        }
+
+        // Mencegah session fixation setelah login.
+        $request->session()->regenerate();
+
+        $user = $request->user();
+
+        /*
+         * Admin selalu diarahkan ke dashboard admin.
+         */
+        if ($user->isAdmin()) {
+            return redirect()
+                ->route('admin.dashboard')
+                ->with('success', 'Selamat datang, '.$user->name.'!');
+        }
+
+        /*
+         * Pelanggan dikembalikan ke halaman yang sebelumnya ingin dibuka.
+         *
+         * Contoh:
+         * 1. Pelanggan membuka /booking.
+         * 2. Middleware auth mengarahkannya ke /login.
+         * 3. Setelah login, pelanggan otomatis kembali ke /booking.
+         *
+         * Jika tidak ada halaman sebelumnya, pelanggan diarahkan
+         * ke halaman antrean saya.
+         */
+        return redirect()
+            ->intended(route('queue.mine'))
+            ->with('success', 'Selamat datang, '.$user->name.'!');
+    }
+
+    /**
+     * Menampilkan halaman registrasi.
+     */
+    public function showRegister()
+    {
+        return view('auth.register');
+    }
+
+    /**
+     * Memproses registrasi pelanggan.
+     */
     public function register(Request $request)
     {
-        // $data = $request->validate([
-        //     'name' => ['required', 'string', 'max:100'],
-        //     'phone' => ['required', 'string', 'max:30'],
-        //     'email' => ['required', 'email', 'max:150', 'unique:users,email'],
-        //     'password' => ['required', 'confirmed', 'min:6'],
-        // ]);
-
         $data = $request->validate(
             [
                 'name' => ['required', 'string', 'max:100'],
@@ -51,7 +98,6 @@ class AuthController extends Controller
                 'password' => ['required', 'confirmed', 'min:6'],
             ],
             [
-
                 'name.required' => 'Nama lengkap wajib diisi.',
                 'name.max' => 'Nama maksimal 100 karakter.',
 
@@ -69,16 +115,44 @@ class AuthController extends Controller
         );
 
         $user = User::create([
-            'name' => $data['name'], 'phone' => $data['phone'], 'email' => strtolower($data['email']),
-            'password' => Hash::make($data['password']), 'role' => 'pelanggan',
+            'name' => trim($data['name']),
+            'phone' => trim($data['phone']),
+            'email' => strtolower(trim($data['email'])),
+            'password' => Hash::make($data['password']),
+            'role' => 'pelanggan',
         ]);
-        Auth::login($user); $request->session()->regenerate();
-        return redirect()->route('home')->with('success', 'Pendaftaran berhasil!');
+
+        Auth::login($user);
+
+        // Membuat session login baru setelah registrasi.
+        $request->session()->regenerate();
+
+        /*
+         * Jika pengguna mendaftar setelah mencoba membuka halaman booking,
+         * pengguna akan dikembalikan ke halaman booking.
+         *
+         * Jika tidak ada halaman sebelumnya, diarahkan ke halaman utama.
+         */
+        return redirect()
+            ->intended(route('home'))
+            ->with('success', 'Pendaftaran berhasil! Selamat datang, '.$user->name.'!');
     }
 
+    /**
+     * Memproses logout pengguna.
+     */
     public function logout(Request $request)
     {
-        Auth::logout(); $request->session()->invalidate(); $request->session()->regenerateToken();
-        return redirect()->route('home')->with('success', 'Anda telah keluar.');
+        Auth::logout();
+
+        // Menghapus session lama.
+        $request->session()->invalidate();
+
+        // Membuat ulang token CSRF.
+        $request->session()->regenerateToken();
+        
+        return redirect()
+            ->route('home')
+            ->with('success', 'Anda telah keluar.');
     }
 }
