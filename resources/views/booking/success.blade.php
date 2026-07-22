@@ -102,7 +102,7 @@
             <div class="mt-8 flex flex-wrap justify-center gap-3">
 
                 <a
-                    href="{{ route('queue.mine', ['phone' => $booking->phone]) }}"
+                    href="{{ route('queue.mine', ['booking' => $booking->public_id]) }}"
                     class="btn-gold btn-gold-hover rounded-md px-5 py-2.5 text-sm font-semibold"
                 >
                     Lihat Antrean Saya

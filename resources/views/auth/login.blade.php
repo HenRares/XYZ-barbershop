@@ -17,11 +17,6 @@
                 </form>
                 <p class="mt-5 text-center text-sm text-muted-foreground">Belum punya akun? <a
                         href="{{ route('register') }}" class="text-primary hover:underline">Daftar di sini</a></p>
-                <div class="mt-6 rounded-md border border-border bg-background/50 p-3 text-xs text-muted-foreground">
-                    <div class="font-semibold text-foreground">Akun Demo:</div>
-                    <div>Admin: admin@xyzbarbershop.com / admin123</div>
-                    <div>Pelanggan: pelanggan@mail.com / pelanggan123</div>
-                </div>
             </div>
         </div>
     </main>

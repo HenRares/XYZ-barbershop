@@ -25,6 +25,10 @@
                 @endforeach
             </select></div><button class="hidden">Filter</button>
     </form>
+    <div class="mt-3 text-sm text-muted-foreground">
+        Barber tersedia: <span class="font-semibold text-primary">{{ max(0, $effectiveCapacity - $servingCount) }}</span>
+        dari {{ $effectiveCapacity }} kapasitas efektif.
+    </div>
     <div class="card-premium mt-6 overflow-hidden rounded-xl">
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -60,8 +64,9 @@
                                 @if($booking->status === 'Menunggu')
                                     <form method="POST" action="{{ route('admin.queues.status', $booking) }}">@csrf
                                         @method('PATCH')<input type="hidden" name="status" value="Sedang Dilayani"><button
-                                            title="Tandai Sedang Dilayani"
-                                            class="rounded p-1.5 text-primary hover:bg-primary/10"><x-icon
+                                            title="{{ $canStartServing ? 'Tandai Sedang Dilayani' : 'Kapasitas penuh atau di luar jam operasional' }}"
+                                            @disabled(!$canStartServing)
+                                            class="rounded p-1.5 text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-30"><x-icon
                                 name="play-circle" class="h-4 w-4" /></button></form>@endif
                                 @if($booking->status === 'Sedang Dilayani')
                                     <form method="POST" action="{{ route('admin.queues.status', $booking) }}">@csrf

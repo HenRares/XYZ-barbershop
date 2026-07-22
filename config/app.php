@@ -12,5 +12,12 @@ return [
     'cipher' => 'AES-256-CBC',
     'key' => env('APP_KEY'),
     'previous_keys' => [...array_filter(explode(',', env('APP_PREVIOUS_KEYS', '')))],
+    'cron_secret' => env('CRON_SECRET'),
+    'seed_admin' => [
+        'name' => env('SEED_ADMIN_NAME', 'Admin XYZ'),
+        'phone' => env('SEED_ADMIN_PHONE', '080000000000'),
+        'email' => env('SEED_ADMIN_EMAIL'),
+        'password' => env('SEED_ADMIN_PASSWORD'),
+    ],
     'maintenance' => ['driver' => env('APP_MAINTENANCE_DRIVER', 'file'), 'store' => env('APP_MAINTENANCE_STORE', 'database')],
 ];

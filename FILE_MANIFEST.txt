@@ -1,5 +1,6 @@
 ./.env.example
 ./.gitignore
+./BUGFIX_REPORT.md
 ./FILE_MANIFEST.txt
 ./KONVERSI_TYPESCRIPT_KE_LARAVEL.md
 ./README.md
@@ -12,6 +13,7 @@
 ./app/Http/Controllers/AuthController.php
 ./app/Http/Controllers/BookingController.php
 ./app/Http/Controllers/Controller.php
+./app/Http/Controllers/CronController.php
 ./app/Http/Controllers/HomeController.php
 ./app/Http/Controllers/QueueTrackingController.php
 ./app/Http/Middleware/EnsureUserIsAdmin.php
@@ -22,12 +24,15 @@
 ./app/Models/User.php
 ./app/Providers/AppServiceProvider.php
 ./app/Services/BookingCreator.php
+./app/Services/BookingStatusReconciler.php
+./app/Services/BarberScheduler.php
 ./app/Services/QueueEstimator.php
 ./artisan
 ./bootstrap/app.php
 ./bootstrap/cache/.gitignore
 ./bootstrap/providers.php
 ./composer.json
+./composer.lock
 ./config/app.php
 ./config/auth.php
 ./config/cache.php
@@ -40,7 +45,6 @@
 ./config/services.php
 ./config/session.php
 ./config/view.php
-./database/database.sqlite
 ./database/migrations/0001_01_01_000000_create_users_table.php
 ./database/migrations/0001_01_01_000001_create_cache_table.php
 ./database/migrations/0001_01_01_000002_create_jobs_table.php
@@ -48,11 +52,15 @@
 ./database/migrations/2026_01_01_000200_create_barber_capacities_table.php
 ./database/migrations/2026_01_01_000300_create_queue_counters_table.php
 ./database/migrations/2026_01_01_000400_create_bookings_table.php
+./database/migrations/2026_06_20_134442_create_barber_logs_table.php
+./database/migrations/2026_07_20_000500_ensure_barber_logs_status_column.php
 ./database/seeders/DatabaseSeeder.php
 ./package.json
+./package-lock.json
 ./phpunit.xml
 ./public/.htaccess
 ./public/index.php
+./public/build/manifest.json
 ./public/robots.txt
 ./resources/css/app.css
 ./resources/js/app.js
@@ -90,3 +98,4 @@
 ./tests/TestCase.php
 ./tests/Unit/QueueEstimatorTest.php
 ./vite.config.js
+./vercel.json

@@ -104,11 +104,8 @@
                             Sedang Dilayani
                         </span>
 
-                        <span class="text-sm font-semibold">
-                            No.
-                            <span data-estimate="currentServingNumber">
-                                0
-                            </span>
+                        <span data-estimate="currentServingLabel" class="text-sm font-semibold">
+                            Belum ada
                         </span>
                     </div>
 

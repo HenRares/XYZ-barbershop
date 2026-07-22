@@ -8,7 +8,7 @@ Dokumen ini menjelaskan lokasi setiap logika utama dari project Lovable asli dan
 |---|---|---|
 | `src/lib/storage.ts` | migrations, `app/Models/*`, `database/seeders/DatabaseSeeder.php` | Mengganti `localStorage` menjadi database relasional. |
 | `src/lib/auth-context.tsx` | `AuthController`, model `User`, session guard Laravel | Login, logout, register, role admin/pelanggan. |
-| `src/lib/queue.ts` | `app/Services/QueueEstimator.php` | Port algoritma estimasi antrean dan kapasitas barber. |
+| `src/lib/queue.ts` | `app/Services/QueueEstimator.php`, `app/Services/BarberScheduler.php` | Estimasi antrean, kapasitas, dan penjadwalan barber. |
 | `src/routes/index.tsx` | `HomeController`, `resources/views/home.blade.php` | Beranda, cara kerja, layanan populer. |
 | `src/routes/layanan.tsx` | `resources/views/services/index.blade.php` | Katalog layanan aktif. |
 | `src/routes/login.tsx` | `AuthController`, `auth/login.blade.php` | Login session Laravel. |
@@ -79,7 +79,8 @@ Aturan kapasitas yang sama dengan TypeScript:
 DB::transaction(function () {
     DB::table('queue_counters')->insertOrIgnore(...);
     $counter = QueueCounter::whereDate('date', $date)->lockForUpdate()->firstOrFail();
-    $queueNumber = $counter->last_number + 1;
+    $lastBookingNumber = Booking::forDate($date)->max('queue_number') ?? 0;
+    $queueNumber = max($counter->last_number, $lastBookingNumber) + 1;
     $counter->update(['last_number' => $queueNumber]);
     // hitung estimasi dan insert booking
 }, attempts: 5);
@@ -94,12 +95,12 @@ Ini adalah peningkatan penting dibanding versi `localStorage`, yang dapat mengha
 - `Sedang Dilayani` → `Selesai`
 - `Sedang Dilayani` → `Dibatalkan`
 
-Sesudah status atau kapasitas berubah, `QueueEstimator::recalculateDay()` memperbarui estimasi semua antrean aktif pada tanggal tersebut.
+Perubahan status dan kapasitas dijalankan dalam transaction. `BarberScheduler::startServing()` menolak permintaan jika kapasitas efektif penuh, berada di luar jam operasional, atau durasi layanan melewati jam istirahat/jam tutup. Setelah perubahan, `BarberScheduler::rebuildSchedule()` menyelaraskan `barber_logs` dan estimasi booking yang masih menunggu.
 
 ## 6. Perbedaan yang sengaja diperbaiki
 
 - Password tidak lagi plaintext; Laravel menyimpan hash.
-- Halaman “Antrean Saya” tidak menampilkan seluruh booking kepada pengunjung. Guest harus memasukkan nomor HP; user login hanya melihat booking miliknya/nomor HP yang cocok.
+- Halaman “Antrean Saya”, halaman sukses, summary polling, dan pembatalan hanya dapat mengakses booking dengan `user_id` milik akun yang sedang login.
 - ID publik memakai ULID agar URL booking tidak mudah ditebak.
 - Layanan yang sudah dipakai booking tidak dihapus fisik; layanan dinonaktifkan agar histori tidak rusak.
 - Validasi server-side diterapkan pada semua form.
@@ -110,7 +111,7 @@ Sesudah status atau kapasitas berubah, `QueueEstimator::recalculateDay()` memper
 - UI admin: `resources/views/admin/*`.
 - Warna dan style: `resources/css/app.css`.
 - Interaksi browser/polling: `resources/js/app.js`.
-- Logika antrean: `app/Services/QueueEstimator.php`.
+- Logika antrean: `app/Services/QueueEstimator.php`, `app/Services/BarberScheduler.php`, dan `app/Services/BookingStatusReconciler.php`.
 - Pembuatan booking atomik: `app/Services/BookingCreator.php`.
 - Route: `routes/web.php`.
 - Database: `database/migrations/*`.

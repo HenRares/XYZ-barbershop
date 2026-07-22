@@ -32,7 +32,11 @@ class BookingCreator
 
             /** @var QueueCounter $counter */
             $counter = QueueCounter::whereDate('date', $date)->lockForUpdate()->firstOrFail();
-            $queueNumber = $counter->last_number + 1;
+            $lastBookingNumber = (int) (Booking::forDate($date)
+                ->orderByDesc('queue_number')
+                ->lockForUpdate()
+                ->value('queue_number') ?? 0);
+            $queueNumber = max((int) $counter->last_number, $lastBookingNumber) + 1;
             $counter->update(['last_number' => $queueNumber]);
 
             $dayBookings = Booking::forDate($date)->orderBy('queue_number')->lockForUpdate()->get();
@@ -95,5 +99,4 @@ class BookingCreator
         }, attempts: 5);
     }
 }
-
 

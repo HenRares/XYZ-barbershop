@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\ServiceController as AdminServiceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BookingController;
+use App\Http\Controllers\CronController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\QueueTrackingController;
 use App\Models\Service;
@@ -29,6 +30,10 @@ Route::get('/layanan', function () {
     ]);
 })->name('services.index');
 
+Route::get('/api/cron/booking-auto-complete', CronController::class)
+    ->middleware('throttle:10,1')
+    ->name('cron.booking-auto-complete');
+
 
 /*
 |--------------------------------------------------------------------------
@@ -41,10 +46,12 @@ Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])
         ->name('login');
     Route::post('/login', [AuthController::class, 'login'])
+        ->middleware('throttle:5,1')
         ->name('login.store');
     Route::get('/register', [AuthController::class, 'showRegister'])
         ->name('register');
     Route::post('/register', [AuthController::class, 'register'])
+        ->middleware('throttle:3,1')
         ->name('register.store');
 });
 

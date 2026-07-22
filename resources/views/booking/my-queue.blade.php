@@ -10,27 +10,6 @@
             Pantau status antrean Anda secara real-time.
         </p>
 
-        {{-- Guest Search Form --}}
-        @guest
-            <form
-                method="GET"
-                action="{{ route('queue.mine') }}"
-                class="mt-6 flex max-w-xl gap-2"
-            >
-                <input
-                    type="text"
-                    name="phone"
-                    value="{{ $phone }}"
-                    placeholder="Masukkan nomor HP booking"
-                    class="input-control"
-                >
-
-                <button class="btn-gold rounded-md px-4 py-2 text-sm">
-                    Cari
-                </button>
-            </form>
-        @endguest
-
         {{-- =========================================================
      TAMPILKAN JIKA TIDAK ADA ANTREAN AKTIF HARI INI
      ========================================================= --}}
@@ -38,7 +17,7 @@
             <div class="mt-10 rounded-xl border border-dashed border-border p-12 text-center">
                 {{-- Pesan kepada pelanggan --}}
                 <p class="text-lg font-semibold text-muted-foreground">
-                    Anda belum memiliki antrean aktif hari ini.
+                    Anda belum memiliki antrean aktif.
                 </p>
                 <p class="mt-2 text-sm text-muted-foreground">
                     Silakan lakukan booking untuk mendapatkan nomor antrean.
@@ -85,7 +64,7 @@
                             Nomor Antrean Anda
                         </div>
 
-                        <div class="font-display text-8xl font-extrabold leading-none">
+                        <div data-live="queueNumber" class="font-display text-8xl font-extrabold leading-none">
                             {{ $primary->queue_number }}
                         </div>
 
@@ -112,8 +91,8 @@
                                 Sedang Dilayani
                             </div>
 
-                            <div data-live="currentServingNumber" class="mt-1 text-xl font-bold">
-                                No. {{ $estimate['currentServingNumber'] }}
+                            <div data-live="currentServingLabel" class="mt-1 text-xl font-bold">
+                                {{ $estimate['currentServingLabel'] }}
                             </div>
                         </div>
 
@@ -158,14 +137,14 @@
                     <div class="mt-6 rounded-md border border-primary/30 bg-primary/5 p-4 text-sm text-muted-foreground">
                         <div class="font-semibold text-primary">
                             Antrean
-                            <span data-live="currentServingNumber">
-                                No. {{ $estimate['currentServingNumber'] }}
+                            <span data-live="currentServingLabel">
+                                {{ $estimate['currentServingLabel'] }}
                             </span>
                             sedang dilayani
                         </div>
 
                         <div>
-                            Antrean {{ $primary->queue_number }} adalah antrean Anda
+                            Antrean <span data-live="queueNumber">{{ $primary->queue_number }}</span> adalah antrean Anda
                         </div>
                     </div>
 
@@ -221,12 +200,6 @@
                             class="mt-6"
                         >
                             @csrf
-
-                            <input
-                                type="hidden"
-                                name="phone"
-                                value="{{ $phone ?: $primary->phone }}"
-                            >
 
                             <button
                                 class="w-full rounded-md border border-destructive/50 px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10"

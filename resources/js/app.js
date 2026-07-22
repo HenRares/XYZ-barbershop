@@ -60,9 +60,16 @@ if (tracker) {
     const refresh = async () => {
         try {
             const { data } = await axios.get(tracker.dataset.summaryUrl);
-            const map = { currentServingNumber: `No. ${data.currentServingNumber}`, waitingBefore: `${data.waitingBefore} pelanggan`, waitingText: data.waitingText, serviceTime: data.serviceTime };
+            const map = {
+                queueNumber: data.queueNumber,
+                currentServingLabel: data.currentServingLabel,
+                waitingBefore: `${data.waitingBefore} pelanggan`,
+                waitingText: data.waitingText,
+                serviceTime: data.serviceTime,
+            };
             Object.entries(map).forEach(([key, value]) => document.querySelectorAll(`[data-live="${key}"]`).forEach(el => el.textContent = value));
             document.querySelectorAll('[data-live="status"]').forEach(el => { el.textContent = data.status; el.className = `status-badge ${data.statusClass}`; });
+            if (!data.isActive) window.location.reload();
         } catch (_) { /* Keep last known state when connection is temporarily unavailable. */ }
     };
     setInterval(refresh, 5000);

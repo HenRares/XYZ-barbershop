@@ -2,269 +2,316 @@
 
 namespace App\Services;
 
-use App\Models\BarberCapacity;
 use App\Models\BarberLog;
 use App\Models\Booking;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class BarberScheduler
 {
-    /**
-     * Menentukan barber slot untuk booking yang baru dibuat.
-     *
-     * Logic:
-     * - Ambil jumlah barber aktif pada tanggal booking.
-     * - Cari barber yang paling cepat selesai melayani pelanggan sebelumnya.
-     * - Jika ada barber yang belum memiliki antrean, gunakan barber tersebut.
-     * - Simpan jadwal pelayanan ke tabel barber_logs.
-     */
+    public function __construct(
+        private readonly QueueEstimator $estimator,
+    ) {}
+
     public function assign(Booking $booking): BarberLog
     {
-        $date = $booking->visit_date;
+        $date = $booking->visit_date->toDateString();
+        $schedule = $this->calculateSchedule($date, (int) $booking->service_duration);
+        $serviceEnd = $schedule['startAt']->copy()->addMinutes((int) $booking->service_duration);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Hitung jadwal barber menggunakan algoritma yang sama
-        | dengan halaman preview.
-        |--------------------------------------------------------------------------
-        */
-        $schedule = $this->calculateSchedule(
-            $booking->visit_date
+        $log = BarberLog::updateOrCreate(
+            ['booking_id' => $booking->id],
+            [
+                'barber_slot' => $schedule['slot'],
+                'service_start_at' => $schedule['startAt'],
+                'service_end_at' => $serviceEnd,
+                'status' => 'waiting',
+            ]
         );
-        $selectedSlot = $schedule['slot'];
-        $selectedStart = $schedule['startAt'];
 
-                /*
-        |--------------------------------------------------------------------------
-        | Hitung waktu selesai pelayanan
-        |--------------------------------------------------------------------------
-        */
-        $serviceEnd = (clone $selectedStart)
-            ->addMinutes(
-                (int) $booking->service_duration
-            );
+        return $log;
+    }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Simpan jadwal barber
-        |--------------------------------------------------------------------------
-        */
-        return BarberLog::create([
-            'booking_id' => $booking->id,
-            'barber_slot' => $selectedSlot,
-            'service_start_at' => $selectedStart,
-            'service_end_at' => $serviceEnd,
+    /** @return array{barberSlot:int,serviceStartAt:Carbon} */
+    public function preview(string $date, int $duration): array
+    {
+        $schedule = $this->calculateSchedule($date, $duration);
+
+        return [
+            'barberSlot' => $schedule['slot'],
+            'serviceStartAt' => $schedule['startAt'],
+        ];
+    }
+
+    public function startServing(Booking $booking): BarberLog
+    {
+        $date = $booking->visit_date->toDateString();
+
+        if ($date !== now()->toDateString()) {
+            throw ValidationException::withMessages([
+                'status' => 'Hanya antrean hari ini yang dapat mulai dilayani.',
+            ]);
+        }
+
+        $settings = $this->estimator->settingsForDate($date);
+        $now = now();
+        $opening = Carbon::parse("{$date} {$settings['opening_time']}");
+        $closing = Carbon::parse("{$date} {$settings['closing_time']}");
+
+        if ($now->lt($opening) || $now->gte($closing)) {
+            throw ValidationException::withMessages([
+                'status' => "Pelayanan hanya dapat dimulai pukul {$settings['opening_time']} sampai {$settings['closing_time']}.",
+            ]);
+        }
+
+        $activeBarbers = $this->estimator->activeBarbersAt(
+            $date,
+            $this->estimator->minuteOfDay($now)
+        );
+
+        $serviceEnd = $now->copy()->addMinutes((int) $booking->service_duration);
+        if ($serviceEnd->gt($closing)) {
+            throw ValidationException::withMessages([
+                'status' => 'Durasi layanan akan melewati jam tutup. Antrean tidak dapat mulai dilayani.',
+            ]);
+        }
+
+        $eligibleSlots = collect(range(1, $activeBarbers))
+            ->filter(fn (int $slot) => $this->slotAvailableForInterval(
+                $date,
+                $slot,
+                $now,
+                $serviceEnd,
+                $settings['active_barbers']
+            ));
+
+        $servingBookings = Booking::query()
+            ->with('barberLog')
+            ->where('id', '!=', $booking->id)
+            ->whereDate('visit_date', $date)
+            ->where('status', Booking::STATUS_SERVING)
+            ->lockForUpdate()
+            ->get();
+
+        // Kapasitas dihitung berdasarkan jumlah pelanggan yang sedang dilayani,
+        // sehingga data log lama yang tidak lengkap tidak dapat melewati batas.
+        if ($servingBookings->count() >= $activeBarbers) {
+            throw ValidationException::withMessages([
+                'status' => "Semua {$activeBarbers} barber sedang melayani pelanggan. Selesaikan salah satu antrean terlebih dahulu.",
+            ]);
+        }
+
+        $usedSlots = $servingBookings
+            ->pluck('barberLog.barber_slot')
+            ->filter(fn ($slot) => $slot !== null)
+            ->map(fn ($slot) => (int) $slot)
+            ->filter(fn (int $slot) => $slot >= 1 && $slot <= $activeBarbers)
+            ->unique()
+            ->values();
+
+        // Reservasi slot tambahan untuk log legacy yang hilang/duplikat.
+        foreach (range(1, $activeBarbers) as $candidateSlot) {
+            if ($usedSlots->count() >= $servingBookings->count()) break;
+            if (! $usedSlots->contains($candidateSlot)) $usedSlots->push($candidateSlot);
+        }
+
+        $existingSlot = (int) ($booking->barberLog?->barber_slot ?? 0);
+        $availableSlots = $eligibleSlots->diff($usedSlots);
+        if ($availableSlots->isEmpty()) {
+            throw ValidationException::withMessages([
+                'status' => 'Tidak ada barber yang tersedia untuk seluruh durasi layanan, termasuk periode istirahat.',
+            ]);
+        }
+
+        $slot = $availableSlots->contains($existingSlot)
+            ? $existingSlot
+            : (int) $availableSlots->first();
+
+        $log = BarberLog::updateOrCreate(
+            ['booking_id' => $booking->id],
+            [
+                'barber_slot' => $slot,
+                'service_start_at' => $now,
+                'service_end_at' => $serviceEnd,
+                'status' => 'serving',
+            ]
+        );
+
+        $booking->update([
+            'estimated_waiting_time' => 0,
+            'estimated_service_time' => $now->format('H:i'),
+        ]);
+
+        return $log;
+    }
+
+    public function markDone(Booking $booking): void
+    {
+        $booking->barberLog?->update([
+            'service_end_at' => now(),
+            'status' => 'done',
         ]);
     }
 
-    /**
-     * ============================================================
-     * Menghitung jadwal barber yang paling cepat tersedia.
-     *
-     * Method ini digunakan oleh:
-     * - preview()  -> hanya menampilkan estimasi.
-     * - assign()   -> menyimpan hasil penjadwalan.
-     *
-     * Dengan menggunakan satu algoritma yang sama,
-     * estimasi pada halaman Booking dan Booking Berhasil
-     * akan selalu konsisten.
-     * ============================================================
-     */
-
-    private function calculateSchedule(string $date): array
+    public function removeSchedule(Booking $booking): void
     {
-        /*
-        |--------------------------------------------------------------------------
-        | Ambil jumlah barber aktif
-        |--------------------------------------------------------------------------
-        */
-        $activeBarbers = (int) (
-            BarberCapacity::whereDate('date', $date)
-                ->value('active_barbers')
-            ?? 1
-        );
-        /*
-        |--------------------------------------------------------------------------
-        | Default barber pertama
-        |--------------------------------------------------------------------------
-        */
-        $selectedSlot = 1;
-        $selectedStart = now();
-        $earliestTime = null;
-
-        /*
-        |--------------------------------------------------------------------------
-        | Cari barber yang paling cepat tersedia
-        |--------------------------------------------------------------------------
-        */
-        for ($slot = 1; $slot <= $activeBarbers; $slot++) {
-            $lastLog = BarberLog::where('barber_slot', $slot)
-                ->whereHas('booking', function ($q) use ($date) {
-                    $q->whereDate('visit_date', $date);
-                })
-                ->orderByDesc('service_end_at')
-                ->first();
-            /*
-            |--------------------------------------------------------------------------
-            | Barber belum memiliki antrean
-            |--------------------------------------------------------------------------
-            */
-            if (!$lastLog) {
-                $selectedSlot = $slot;
-                $selectedStart = now();
-                break;
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Barber tersedia setelah selesai melayani
-            |--------------------------------------------------------------------------
-            */
-            $availableAt = Carbon::parse(
-                $lastLog->service_end_at
-            )->max(now());
-
-            /*
-            |--------------------------------------------------------------------------
-            | Pilih barber dengan waktu selesai tercepat
-            |--------------------------------------------------------------------------
-            */
-            if (
-                $earliestTime === null ||
-                $availableAt->lt($earliestTime)
-            ) {
-                $earliestTime = $availableAt;
-                $selectedSlot = $slot;
-                $selectedStart = $availableAt;
-            }
-        }
-
-        return [
-            'slot' => $selectedSlot,
-            'startAt' => $selectedStart,
-        ];
+        $booking->barberLog?->delete();
     }
-
-
-    /**
-     * ============================================================
-     * Preview estimasi antrean.
-     *
-     * Digunakan pada halaman Booking sebelum pelanggan
-     * melakukan konfirmasi.
-     * ============================================================
-     */
-    public function preview(string $date, int $duration): array
-    {
-        $schedule = $this->calculateSchedule($date);
-
-        return [
-            'barberSlot'    => $schedule['slot'],
-            'serviceStartAt'=> $schedule['startAt'],
-        ];
-    }
-
-
 
     public function rebuildSchedule(string $date): void
     {
         DB::transaction(function () use ($date) {
+            BarberLog::whereHas('booking', fn ($query) => $query
+                ->whereDate('visit_date', $date)
+                ->whereIn('status', [Booking::STATUS_WAITING, Booking::STATUS_CANCELLED]))
+                ->delete();
 
-            $activeBarbers = (int) (
-                BarberCapacity::whereDate('date', $date)
-                ->value('active_barbers')
-                ?? 1
-            );
-
-            /*
-            * Hapus hanya barber log untuk booking MENUNGGU dan CANCEL
-            */
-            BarberLog::whereHas('booking', function ($q) use ($date) {
-                $q->whereDate('visit_date', $date)
-                    // ->where('status', Booking::STATUS_WAITING);
-                    ->whereIn('status', [
-                        Booking::STATUS_WAITING,
-                        Booking::STATUS_CANCELLED,
-                    ]);
-            })->delete();
-
-            /*
-            * Ambil booking yang masih MENUNGGU
-            */
             $bookings = Booking::query()
                 ->whereDate('visit_date', $date)
                 ->where('status', Booking::STATUS_WAITING)
                 ->orderBy('queue_number')
+                ->lockForUpdate()
                 ->get();
 
-            /*
-            * Bangun slot barber dari data yang MASIH ADA
-            * (Sedang Dilayani / Selesai)
-            */
-            $slots = [];
-
-            for ($i = 1; $i <= $activeBarbers; $i++) {
-
-                $lastLog = BarberLog::query()
-                    ->where('barber_slot', $i)
-                    // ->whereHas('booking', function ($q) use ($date) {
-                    //     $q->whereDate('visit_date', $date);
-                    // })
-
-                    ->whereHas('booking', function ($q) use ($date) {
-                        $q->whereDate('visit_date', $date)
-                        ->whereIn('status', [
-                            Booking::STATUS_SERVING,
-                            Booking::STATUS_DONE,
-                        ]);
-                    })
-                    ->orderByDesc('service_end_at')
-                    ->first();
-
-                $slots[$i] = $lastLog
-                    ? Carbon::parse($lastLog->service_end_at)->max(now())
-                    : now();
-            }
-
-            /*
-            * Jadwalkan ulang booking yang menunggu
-            */
             foreach ($bookings as $booking) {
-
-                asort($slots);
-
-                $slotNumber = array_key_first($slots);
-
-                $startAt = clone $slots[$slotNumber];
-
-                $endAt = (clone $startAt)
-                    ->addMinutes(
-                        (int) $booking->service_duration
-                    );
-
-                BarberLog::create([
-                    'booking_id' => $booking->id,
-                    'barber_slot' => $slotNumber,
-                    'service_start_at' => $startAt,
-                    'service_end_at' => $endAt,
-                    // 'status' => 'waiting',
-                ]);
+                $log = $this->assign($booking);
 
                 $booking->update([
-                    'estimated_service_time' => $startAt->format('H:i'),
-
+                    'estimated_service_time' => $log->service_start_at->format('H:i'),
                     'estimated_waiting_time' => max(
                         0,
-                        now()->diffInMinutes(
-                            $startAt,
-                            false
-                        )
+                        (int) now()->diffInMinutes($log->service_start_at, false)
                     ),
                 ]);
-
-                $slots[$slotNumber] = $endAt;
             }
         });
+    }
+
+    /** @return array{slot:int,startAt:Carbon} */
+    private function calculateSchedule(string $date, int $duration): array
+    {
+        $settings = $this->estimator->settingsForDate($date);
+        $opening = Carbon::parse("{$date} {$settings['opening_time']}");
+        $closing = Carbon::parse("{$date} {$settings['closing_time']}");
+        $baseStart = $date === now()->toDateString()
+            ? $opening->copy()->max(now())
+            : $opening->copy();
+
+        $candidates = collect();
+
+        for ($slot = 1; $slot <= $settings['active_barbers']; $slot++) {
+            $lastLog = BarberLog::query()
+                ->where('barber_slot', $slot)
+                ->whereHas('booking', fn ($query) => $query
+                    ->whereDate('visit_date', $date)
+                    ->whereIn('status', [
+                        Booking::STATUS_WAITING,
+                        Booking::STATUS_SERVING,
+                        Booking::STATUS_DONE,
+                    ]))
+                ->orderByDesc('service_end_at')
+                ->first();
+
+            $availableAt = $lastLog
+                ? Carbon::parse($lastLog->service_end_at)->max($baseStart)
+                : $baseStart->copy();
+            $availableAt = $this->nextAllowedStart(
+                $date,
+                $slot,
+                $availableAt,
+                $closing,
+                $duration,
+                $settings['active_barbers']
+            );
+
+            if ($availableAt && $availableAt->copy()->addMinutes($duration)->lte($closing)) {
+                $candidates->push(['slot' => $slot, 'startAt' => $availableAt]);
+            }
+        }
+
+        $selected = $candidates
+            ->sortBy(fn (array $candidate) => sprintf(
+                '%s-%03d',
+                $candidate['startAt']->format('Y-m-d H:i:s'),
+                $candidate['slot']
+            ))
+            ->first();
+
+        if (! $selected) {
+            throw ValidationException::withMessages([
+                'visit_date' => 'Jadwal barber pada tanggal tersebut sudah penuh atau berada di luar jam operasional.',
+            ]);
+        }
+
+        return $selected;
+    }
+
+    private function nextAllowedStart(
+        string $date,
+        int $slot,
+        Carbon $candidate,
+        Carbon $closing,
+        int $duration,
+        int $baseBarbers
+    ): ?Carbon {
+        while ($candidate->lt($closing)) {
+            $serviceEnd = $candidate->copy()->addMinutes($duration);
+            if ($serviceEnd->gt($closing)) return null;
+
+            $blockedUntil = null;
+            foreach ([['12:00', '14:00'], ['18:00', '20:00']] as [$from, $until]) {
+                $breakStart = Carbon::parse("{$date} {$from}");
+                $breakEnd = Carbon::parse("{$date} {$until}");
+                $breakCapacity = $this->estimator->effectiveBarbersForBase(
+                    $baseBarbers,
+                    $this->estimator->toMinutes($from)
+                );
+
+                // Slot barber harus tersedia untuk seluruh durasi layanan,
+                // bukan hanya pada menit pertama.
+                if (
+                    $slot > $breakCapacity
+                    && $candidate->lt($breakEnd)
+                    && $serviceEnd->gt($breakStart)
+                ) {
+                    $blockedUntil = $breakEnd;
+                    break;
+                }
+            }
+
+            if (! $blockedUntil) return $candidate;
+
+            $candidate = $blockedUntil;
+        }
+
+        return null;
+    }
+
+    private function slotAvailableForInterval(
+        string $date,
+        int $slot,
+        Carbon $start,
+        Carbon $end,
+        int $baseBarbers
+    ): bool {
+        foreach ([['12:00', '14:00'], ['18:00', '20:00']] as [$from, $until]) {
+            $breakStart = Carbon::parse("{$date} {$from}");
+            $breakEnd = Carbon::parse("{$date} {$until}");
+            $breakCapacity = $this->estimator->effectiveBarbersForBase(
+                $baseBarbers,
+                $this->estimator->toMinutes($from)
+            );
+
+            if (
+                $slot > $breakCapacity
+                && $start->lt($breakEnd)
+                && $end->gt($breakStart)
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

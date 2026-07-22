@@ -45,20 +45,21 @@ class Booking extends Model
     }
 
 
-    //tambahaannn
     public function getCurrentWaitingMinutes(): int
     {
-        if (!$this->estimated_service_time) {
-            return 0;
+        $serviceTime = $this->barberLog?->service_start_at;
+
+        if (! $serviceTime && preg_match('/^(\d{2}):(\d{2})/', (string) $this->estimated_service_time, $matches)) {
+            $serviceTime = $this->visit_date
+                ->copy()
+                ->setTime((int) $matches[1], (int) $matches[2]);
         }
 
-        $serviceTime = $this->visit_date
-            ->copy()
-            ->setTimeFromTimeString($this->estimated_service_time);
+        if (! $serviceTime) return 0;
 
         return max(
             0,
-            now()->diffInMinutes($serviceTime, false)
+            (int) now()->diffInMinutes($serviceTime, false)
         );
     }
 }

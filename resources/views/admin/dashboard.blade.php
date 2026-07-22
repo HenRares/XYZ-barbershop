@@ -58,7 +58,7 @@
         <div class="mt-4 grid grid-cols-2 gap-4">
 
             @foreach ([
-                ['Sedang Dilayani', $current ? '#' . $current->queue_number : '—', true],
+                ['Sedang Dilayani', $currentLabel, true],
                 ['Antrean Berikutnya', $next ? '#' . $next->queue_number : '—', false],
                 ['Barber Aktif', $barbers, false],
                 ['Rata-rata Tunggu', $avgWait ? $avgWait . ' mnt' : '—', false],
